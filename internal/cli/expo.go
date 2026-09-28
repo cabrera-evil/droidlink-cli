@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -178,10 +180,25 @@ func adbDeviceName(ctx context.Context, client *adb.Client, serial string) (stri
 	return "", fmt.Errorf("no adb device found with serial %q", serial)
 }
 
-// androidPackageName resolves the Expo project's Android application ID by
-// evaluating its app config (app.json/app.config.js) in the current
-// directory via `npx expo config --json`.
+// androidPackageName resolves the Android application ID that `expo
+// run:android` will actually build and install.
+//
+// If prebuild has already generated a native android/ project,
+// `expo run:android` reuses it as-is and does not re-run prebuild, so that
+// project's build.gradle applicationId is the ground truth; app.json's
+// android.package can drift from it until prebuild is explicitly re-run, so
+// it isn't a safe source once a native project exists. Otherwise (no native
+// project yet) the app config is evaluated via `npx expo config --json`,
+// since expo run:android will prebuild fresh from it.
 func androidPackageName(ctx context.Context) (string, error) {
+	if pkg, ok, err := androidPackageFromNativeProject(); err != nil {
+		return "", err
+	} else if ok {
+		logging.FromContext(ctx).InfoContext(ctx, "using package from existing native android project", "package", pkg)
+
+		return pkg, nil
+	}
+
 	output, err := exec.CommandContext(ctx, "npx", "expo", "config", "--json").Output()
 	if err != nil {
 		return "", fmt.Errorf("npx expo config --json: %w", err)
@@ -202,6 +219,43 @@ func androidPackageName(ctx context.Context) (string, error) {
 	}
 
 	return parsed.Android.Package, nil
+}
+
+// applicationIDPattern matches a Gradle applicationId declaration, e.g.
+// `applicationId "com.example.app"` or `applicationId 'com.example.app'`
+// (Groovy allows either quote style) or `applicationId =
+// "com.example.app"` (Kotlin DSL). The mandatory trailing quote keeps it
+// from matching `applicationIdSuffix`.
+var applicationIDPattern = regexp.MustCompile(`applicationId\s*=?\s*["']([^"']+)["']`)
+
+// androidPackageFromNativeProject reads applicationId from an
+// already-prebuilt native android project's build.gradle(.kts), if one
+// exists, reporting ok=false (not an error) when prebuild hasn't run yet.
+func androidPackageFromNativeProject() (string, bool, error) {
+	paths := []string{
+		filepath.Join("android", "app", "build.gradle"),
+		filepath.Join("android", "app", "build.gradle.kts"),
+	}
+
+	for _, path := range paths {
+		data, readErr := os.ReadFile(path)
+		if errors.Is(readErr, os.ErrNotExist) {
+			continue
+		}
+
+		if readErr != nil {
+			return "", false, fmt.Errorf("read %s: %w", path, readErr)
+		}
+
+		match := applicationIDPattern.FindSubmatch(data)
+		if match == nil {
+			return "", false, fmt.Errorf("%s: applicationId not found", path)
+		}
+
+		return string(match[1]), true, nil
+	}
+
+	return "", false, nil
 }
 
 func runExpoStart(ctx context.Context, opts expoOptions) error {
