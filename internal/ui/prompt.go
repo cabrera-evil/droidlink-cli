@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/manifoldco/promptui"
+	"github.com/charmbracelet/huh"
 
 	"droidlink/internal/utils"
 )
@@ -23,19 +23,21 @@ func PromptPairingCode() (string, error) {
 		return "", fmt.Errorf("%w: pass --code explicitly", ErrNotInteractive)
 	}
 
-	prompt := promptui.Prompt{
-		Label: "Pairing code",
-		Validate: func(input string) error {
-			if !pairingCodePattern.MatchString(input) {
+	var code string
+
+	field := huh.NewInput().
+		Title("Pairing code").
+		Placeholder("123456").
+		Validate(func(s string) error {
+			if !pairingCodePattern.MatchString(s) {
 				return errors.New("pairing code must be exactly 6 digits")
 			}
 
 			return nil
-		},
-	}
+		}).
+		Value(&code)
 
-	code, err := prompt.Run()
-	if err != nil {
+	if err := runField(field); err != nil {
 		return "", fmt.Errorf("prompt pairing code: %w", err)
 	}
 
@@ -49,20 +51,26 @@ func PromptHostPort(label string) (string, int, error) {
 		return "", 0, fmt.Errorf("%w: pass --host/--port explicitly", ErrNotInteractive)
 	}
 
-	prompt := promptui.Prompt{
-		Label: label,
-		Validate: func(input string) error {
-			_, _, err := splitHostPort(input)
-			return err
-		},
-	}
+	var input string
 
-	input, err := prompt.Run()
-	if err != nil {
+	field := huh.NewInput().
+		Title(label).
+		Placeholder("192.168.1.5:5555").
+		Validate(func(s string) error {
+			_, _, err := splitHostPort(s)
+			return err
+		}).
+		Value(&input)
+
+	if err := runField(field); err != nil {
 		return "", 0, fmt.Errorf("prompt host:port: %w", err)
 	}
 
 	return splitHostPort(input)
+}
+
+func runField(field huh.Field) error {
+	return huh.NewForm(huh.NewGroup(field)).WithTheme(huh.ThemeCharm()).Run()
 }
 
 func splitHostPort(input string) (string, int, error) {

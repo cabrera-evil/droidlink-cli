@@ -1,5 +1,5 @@
-// Package ui is the only droidlink package that imports promptui. It holds
-// pure input/output helpers with no direct adb or discovery calls.
+// Package ui is the only droidlink package that imports huh. It holds pure
+// input/output helpers with no direct adb or discovery calls.
 package ui
 
 import (
@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/manifoldco/promptui"
+	"github.com/charmbracelet/huh"
 
 	"droidlink/internal/types"
 	"droidlink/internal/utils"
@@ -38,20 +38,25 @@ func SelectDevice(devices []types.Device, label string) (types.Device, error) {
 		)
 	}
 
-	items := make([]string, len(devices))
+	options := make([]huh.Option[int], len(devices))
 	for i, d := range devices {
-		items[i] = d.String()
+		options[i] = huh.NewOption(d.String(), i)
 	}
 
-	prompt := promptui.Select{
-		Label: label,
-		Items: items,
-	}
+	selected := 0
 
-	idx, _, err := prompt.Run()
-	if err != nil {
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[int]().
+				Title(label).
+				Options(options...).
+				Value(&selected),
+		),
+	).WithTheme(huh.ThemeCharm())
+
+	if err := form.Run(); err != nil {
 		return types.Device{}, fmt.Errorf("select device: %w", err)
 	}
 
-	return devices[idx], nil
+	return devices[selected], nil
 }
