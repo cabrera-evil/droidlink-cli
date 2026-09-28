@@ -138,7 +138,16 @@ func ensureDevClientInstalled(ctx context.Context, client *adb.Client, serial st
 
 	logger.InfoContext(ctx, "dev client not installed, building and installing", "package", pkg, "serial", serial)
 
-	cmd := exec.CommandContext(ctx, "npx", "expo", "run:android", "--device", serial, "--no-bundler")
+	// `expo run:android --device` matches by Expo's own device name (the adb
+	// `model:` field for network-connected devices, per @expo/cli's
+	// AndroidDeviceManager.resolveFromNameAsync), never by adb serial — so
+	// the wireless host:port serial must be resolved to that name first.
+	deviceName, err := adbDeviceName(ctx, client, serial)
+	if err != nil {
+		return err
+	}
+
+	cmd := exec.CommandContext(ctx, "npx", "expo", "run:android", "--device", deviceName, "--no-bundler")
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -148,6 +157,25 @@ func ensureDevClientInstalled(ctx context.Context, client *adb.Client, serial st
 	}
 
 	return nil
+}
+
+// adbDeviceName looks up the adb-reported name (the `model:` field from
+// `adb devices -l`, adb.go's Device.Name) for serial, which is what Expo's
+// own device resolution matches against for --device, as opposed to the
+// adb serial droidlink otherwise uses everywhere else.
+func adbDeviceName(ctx context.Context, client *adb.Client, serial string) (string, error) {
+	devices, err := client.Devices(ctx)
+	if err != nil {
+		return "", fmt.Errorf("list adb devices: %w", err)
+	}
+
+	for _, d := range devices {
+		if d.Serial == serial {
+			return d.Name, nil
+		}
+	}
+
+	return "", fmt.Errorf("no adb device found with serial %q", serial)
 }
 
 // androidPackageName resolves the Expo project's Android application ID by
