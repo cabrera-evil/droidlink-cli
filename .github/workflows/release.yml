@@ -10,6 +10,17 @@ permissions:
   contents: write
 
 jobs:
+  analyze_code:
+    name: Analyze
+    uses: cabrera-evil/workflows/.github/workflows/code-analysis.yaml@master
+    with:
+      default_branch: ${{ github.event.repository.default_branch }}
+      push_before_sha: ${{ github.event.before }}
+      push_base_sha: ${{ github.event.base_ref }}
+    secrets: inherit
+
   release:
+    name: Release
+    needs: [analyze_code, analyze_deps]
     uses: cabrera-evil/workflows/.github/workflows/go-semantic-release.yaml@master
     secrets: inherit
