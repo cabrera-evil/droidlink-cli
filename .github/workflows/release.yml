@@ -21,6 +21,6 @@ jobs:
 
   release:
     name: Release
-    needs: [analyze_code, analyze_deps]
+    needs: [analyze_code]
     uses: cabrera-evil/workflows/.github/workflows/go-semantic-release.yaml@master
     secrets: inherit
