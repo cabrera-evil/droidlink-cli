@@ -11,9 +11,5 @@ permissions:
 
 jobs:
   release:
-    uses: cabrera-evil/workflows/.github/workflows/go-release.yaml@master
-    with:
-      go-version-file: go.mod
-      goflags: -mod=readonly
-      goreleaser-args: release --clean
+    uses: cabrera-evil/workflows/.github/workflows/go-semantic-release.yaml@master
     secrets: inherit
