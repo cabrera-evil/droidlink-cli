@@ -13,7 +13,7 @@ run = "go run ."
 
 [tasks.build]
 description = "Build the binary"
-run = "go build -trimpath -o bin/go-template ."
+run = "go build -trimpath -o bin/droidlink ."
 
 [tasks.test]
 description = "Run all tests"

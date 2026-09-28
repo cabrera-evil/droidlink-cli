@@ -8,11 +8,15 @@ Install toolchain with `mise`:
 mise install
 ```
 
+You'll also need `adb` (Android platform-tools) on `PATH` or under
+`$ANDROID_HOME`/`$ANDROID_SDK_ROOT`, and `npx` (Node.js/npm) if you're
+working on the `expo` command.
+
 ## Build
 
 ```bash
-make build                     # bin/go-template
-make install                   # ~/.local/bin/go-template (override INSTALL_DIR)
+make build                     # bin/droidlink
+make install                   # ~/.local/bin/droidlink (override INSTALL_DIR)
 ```
 
 The build stamps `main.Version` from `git describe`; override with `make build VERSION=1.2.3`.
@@ -20,8 +24,8 @@ The build stamps `main.Version` from `git describe`; override with `make build V
 ## Run
 
 ```bash
-make run                       # go run .
-make run ARGS="version"        # pass CLI arguments through
+make run ARGS="discover"       # go run . discover
+make run ARGS="--help"
 ```
 
 ## Test
@@ -45,5 +49,5 @@ make docker-run
 
 ## Notes
 
-- `APP_NAME` can be set to customize the greeting output.
-- Update `configs/config.example.yaml` when you add new configuration options.
+- Runtime defaults (`DROIDLINK_METRO_PORT`, `DROIDLINK_DISCOVERY_TIMEOUT`, `DROIDLINK_LOG_LEVEL`) come from the environment; command flags always override them. There is no file-based config.
+- Manually testing `pair`/`connect`/`reverse`/`expo` end-to-end requires a real Android device with Wireless Debugging enabled on the same LAN.

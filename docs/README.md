@@ -1,6 +1,6 @@
 # Docs
 
-This folder is reserved for additional documentation as the template grows.
+This folder is reserved for additional documentation as droidlink grows.
 
 ## Suggestions
 

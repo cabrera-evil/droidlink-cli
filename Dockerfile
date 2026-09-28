@@ -30,7 +30,7 @@ ARG VERSION=dev
 COPY . ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    go build -trimpath -ldflags="-s -w -X main.Version=${VERSION}" -o /out/go-template .
+    go build -trimpath -ldflags="-s -w -X main.Version=${VERSION}" -o /out/droidlink .
 
 # ==============================================================================
 # Runtime stage - Minimal production image
@@ -55,10 +55,10 @@ USER appuser
 WORKDIR /app
 
 # Copy application binary
-COPY --from=builder /out/go-template /app/go-template
+COPY --from=builder /out/droidlink /app/droidlink
 
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
 
 # Start the application
-CMD ["/app/go-template"]
+CMD ["/app/droidlink"]

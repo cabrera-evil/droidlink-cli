@@ -1,14 +1,10 @@
 services:
-  go-template:
-    container_name: go-template
+  droidlink:
+    container_name: droidlink
     build:
       context: .
       dockerfile: Dockerfile
       args:
         GO_VERSION: "1.25"
-    image: cabreraevil/go-template:latest
+    image: cabreraevil/droidlink:latest
     restart: unless-stopped
-    environment:
-      CONFIG_FILE: /app/configs/config.yaml
-    volumes:
-      - ./configs:/app/configs:ro

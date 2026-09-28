@@ -1,39 +1,49 @@
-# Go Template
+# droidlink
 
 ## Overview
 
-A minimal Go starter with a clean layout and basic tooling. The app prints a simple greeting and is meant to be a reusable base for new services or CLIs.
+A Linux-first CLI that removes the manual IP/port/pairing-code friction from
+Android Wireless Debugging and Expo dev-client workflows. It discovers
+devices over mDNS, pairs and connects automatically, and wires up `adb
+reverse` + `npx expo start` for you.
 
-## Structure
+## Commands
 
-- `main.go` boots the app.
-- `internal/app/` holds application logic.
-- `internal/config/` centralizes configuration loading.
-- `configs/` contains example configuration files.
-- `bin/` is the build output directory.
+- `droidlink discover` — find Android Wireless Debugging devices/services on the local network.
+- `droidlink pair` — discover an unpaired device and pair with it using its pairing code.
+- `droidlink connect` — discover paired devices and connect automatically.
+- `droidlink devices` — list discovered/connected devices with status.
+- `droidlink disconnect` — disconnect one or all connected devices.
+- `droidlink reverse` — configure `adb reverse` for the Metro bundler port (default `8081`).
+- `droidlink expo` — connect a device, configure Metro reverse, and start `npx expo start --dev-client --localhost`.
+
+Every command falls back to `--host`/`--port` (and interactive prompts) when
+discovery finds nothing or the terminal isn't interactive. Run
+`droidlink [command] --help` for the full flag list.
 
 ## Requirements
 
 - Go 1.25+ (or use `mise` to install)
+- `adb` (Android platform-tools) on `PATH` or under `$ANDROID_HOME`/`$ANDROID_SDK_ROOT`
+- `npx` (Node.js/npm) for `droidlink expo`
 
 ## Quick Start
 
 ```bash
-make run
-```
-
-Optional configuration:
-
-```bash
-APP_NAME=Codex make run
+make build
+./bin/droidlink discover
 ```
 
 ## Docker
 
 ```bash
-docker build -t go-template .
-docker run --rm go-template
+docker build -t droidlink .
+docker run --rm droidlink
 ```
+
+Note: droidlink relies on host mDNS multicast and a locally installed `adb`,
+so running it inside the container mainly demonstrates the build — real
+device discovery needs host networking and `adb` available in the image.
 
 ## Tooling
 

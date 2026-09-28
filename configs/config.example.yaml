@@ -1,4 +1,0 @@
-# Example config for local development.
-# Not read by default, but a place to document defaults.
-app:
-  name: "World"

@@ -1,11 +1,11 @@
 version: 2
-project_name: go-template
+project_name: droidlink
 before:
   hooks:
     - go mod tidy
 builds:
-  - id: go-template
-    binary: go-template
+  - id: droidlink
+    binary: droidlink
     main: .
     env:
       - CGO_ENABLED=0
