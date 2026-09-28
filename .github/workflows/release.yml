@@ -22,13 +22,6 @@ jobs:
   release:
     name: Release
     needs: [analyze_code]
-    uses: cabrera-evil/workflows/.github/workflows/go-semantic-release.yaml@master
-    secrets: inherit
-
-  build:
-    name: Build
-    needs: [release]
-    if: needs.release.outputs.released == 'true'
     uses: cabrera-evil/workflows/.github/workflows/go-release.yaml@master
     with:
       go-version-file: go.mod

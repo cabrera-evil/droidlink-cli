@@ -30,5 +30,23 @@ archives:
           - zip
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+changelog:
+  sort: asc
+  use: github
+  groups:
+    - title: Features
+      regexp: '^feat(\(.+\))?!?:'
+      order: 0
+    - title: Bug fixes
+      regexp: '^fix(\(.+\))?!?:'
+      order: 1
+    - title: Others
+      order: 999
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
 snapshot:
   version_template: "{{ .Tag }}-next"
