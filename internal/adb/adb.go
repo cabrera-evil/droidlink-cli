@@ -164,6 +164,33 @@ func (c *Client) Reverse(ctx context.Context, serial string, port int) error {
 	return nil
 }
 
+// IsPackageInstalled reports whether pkg is installed on the device
+// identified by serial (scoped via -s when non-empty), via
+// `adb shell pm list packages <pkg>`.
+func (c *Client) IsPackageInstalled(ctx context.Context, serial, pkg string) (bool, error) {
+	args := []string{}
+	if serial != "" {
+		args = append(args, "-s", serial)
+	}
+
+	args = append(args, "shell", "pm", "list", "packages", pkg)
+
+	output, err := c.run(ctx, args...)
+	if err != nil {
+		return false, fmt.Errorf("pm list packages %s: %w", pkg, err)
+	}
+
+	target := "package:" + pkg
+
+	for _, line := range strings.Split(output, "\n") {
+		if strings.TrimSpace(line) == target {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 func (c *Client) run(ctx context.Context, args ...string) (string, error) {
 	// binPath resolved via LookPath/known SDK paths, args are internal, not shell input.
 	cmd := exec.CommandContext(ctx, c.binPath, args...) //nolint:gosec // see comment above

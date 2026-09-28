@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -20,11 +21,12 @@ var errNpxNotFound = errors.New("expo: npx binary not found on PATH")
 
 func newExpoCmd(cfg config.Config) *cobra.Command {
 	var (
-		host        string
-		devicePort  int
-		metroPort   int
-		timeout     time.Duration
-		skipConnect bool
+		host             string
+		devicePort       int
+		metroPort        int
+		timeout          time.Duration
+		skipConnect      bool
+		skipInstallCheck bool
 	)
 
 	cmd := &cobra.Command{
@@ -32,12 +34,13 @@ func newExpoCmd(cfg config.Config) *cobra.Command {
 		Short: "Connect a device, configure Metro reverse, and start Expo",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runExpo(cmd.Context(), expoOptions{
-				ManualHost:  host,
-				ManualPort:  devicePort,
-				MetroPort:   metroPort,
-				Timeout:     timeout,
-				SkipConnect: skipConnect,
-				ExtraArgs:   args,
+				ManualHost:       host,
+				ManualPort:       devicePort,
+				MetroPort:        metroPort,
+				Timeout:          timeout,
+				SkipConnect:      skipConnect,
+				SkipInstallCheck: skipInstallCheck,
+				ExtraArgs:        args,
 			})
 		},
 	}
@@ -47,17 +50,19 @@ func newExpoCmd(cfg config.Config) *cobra.Command {
 	cmd.Flags().IntVar(&metroPort, "port", cfg.DefaultMetroPort, "Metro port to reverse and pass to Expo")
 	cmd.Flags().DurationVar(&timeout, "timeout", cfg.DefaultDiscoveryTimeout, "discovery timeout")
 	cmd.Flags().BoolVar(&skipConnect, "skip-connect", false, "assume a device is already connected")
+	cmd.Flags().BoolVar(&skipInstallCheck, "skip-install-check", false, "assume the dev client is already installed")
 
 	return cmd
 }
 
 type expoOptions struct {
-	ManualHost  string
-	ManualPort  int
-	MetroPort   int
-	Timeout     time.Duration
-	SkipConnect bool
-	ExtraArgs   []string
+	ManualHost       string
+	ManualPort       int
+	MetroPort        int
+	Timeout          time.Duration
+	SkipConnect      bool
+	SkipInstallCheck bool
+	ExtraArgs        []string
 }
 
 func runExpo(ctx context.Context, opts expoOptions) error {
@@ -77,6 +82,12 @@ func runExpo(ctx context.Context, opts expoOptions) error {
 	serial, err := resolveExpoSerial(ctx, client, opts)
 	if err != nil {
 		return err
+	}
+
+	if !opts.SkipInstallCheck {
+		if installErr := ensureDevClientInstalled(ctx, client, serial); installErr != nil {
+			return installErr
+		}
 	}
 
 	if reverseErr := applyReverse(ctx, client, serial, opts.MetroPort); reverseErr != nil {
@@ -101,6 +112,68 @@ func resolveExpoSerial(ctx context.Context, client *adb.Client, opts expoOptions
 	}
 
 	return device.Serial, nil
+}
+
+// ensureDevClientInstalled checks whether the Expo dev client is already
+// installed on serial and, if not, builds and installs it via
+// `npx expo run:android`.
+func ensureDevClientInstalled(ctx context.Context, client *adb.Client, serial string) error {
+	pkg, err := androidPackageName(ctx)
+	if err != nil {
+		return err
+	}
+
+	logger := logging.FromContext(ctx)
+
+	installed, err := client.IsPackageInstalled(ctx, serial, pkg)
+	if err != nil {
+		return err
+	}
+
+	if installed {
+		logger.InfoContext(ctx, "dev client already installed", "package", pkg, "serial", serial)
+
+		return nil
+	}
+
+	logger.InfoContext(ctx, "dev client not installed, building and installing", "package", pkg, "serial", serial)
+
+	cmd := exec.CommandContext(ctx, "npx", "expo", "run:android", "--device", serial, "--no-bundler")
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if runErr := cmd.Run(); runErr != nil {
+		return fmt.Errorf("npx expo run:android: %w", runErr)
+	}
+
+	return nil
+}
+
+// androidPackageName resolves the Expo project's Android application ID by
+// evaluating its app config (app.json/app.config.js) in the current
+// directory via `npx expo config --json`.
+func androidPackageName(ctx context.Context) (string, error) {
+	output, err := exec.CommandContext(ctx, "npx", "expo", "config", "--json").Output()
+	if err != nil {
+		return "", fmt.Errorf("npx expo config --json: %w", err)
+	}
+
+	var parsed struct {
+		Android struct {
+			Package string `json:"package"`
+		} `json:"android"`
+	}
+
+	if unmarshalErr := json.Unmarshal(output, &parsed); unmarshalErr != nil {
+		return "", fmt.Errorf("parse expo config output: %w", unmarshalErr)
+	}
+
+	if parsed.Android.Package == "" {
+		return "", errors.New("expo config: android.package is not set in app.json/app.config")
+	}
+
+	return parsed.Android.Package, nil
 }
 
 func runExpoStart(ctx context.Context, opts expoOptions) error {
