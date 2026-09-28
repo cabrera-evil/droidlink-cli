@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -13,6 +14,12 @@ import (
 	"droidlink/internal/logging"
 	"droidlink/internal/ui"
 )
+
+// pairMaxAttempts bounds automatic retries of the pairing session-rotation
+// glitch (see isTransientPairError). Each attempt re-discovers the device
+// and re-prompts for the code, since a failed attempt commonly causes the
+// phone to rotate its pairing port and code defensively.
+const pairMaxAttempts = 3
 
 func newPairCmd(cfg config.Config) *cobra.Command {
 	var (
@@ -60,30 +67,59 @@ func runPair(ctx context.Context, opts pairOptions) error {
 		return err
 	}
 
-	device, err := resolveDevice(ctx, discovery.BrowsePairing, resolveOptions{
-		ManualHost:  opts.ManualHost,
-		ManualPort:  opts.ManualPort,
-		Timeout:     opts.Timeout,
-		SelectLabel: "Select device to pair",
-		ManualLabel: "Enter device host:port",
-	})
-	if err != nil {
-		return fmt.Errorf("find device to pair (open Wireless debugging > Pair with pairing code): %w", err)
-	}
+	logger := logging.FromContext(ctx)
 
-	code := opts.Code
-	if code == "" {
-		code, err = ui.PromptPairingCode()
-		if err != nil {
-			return err
+	var lastErr error
+
+	for attempt := 1; attempt <= pairMaxAttempts; attempt++ {
+		if attempt > 1 {
+			logger.WarnContext(ctx, "pairing session likely rotated after a transient failure, retrying",
+				"attempt", attempt)
 		}
+
+		device, resolveErr := resolveDevice(ctx, discovery.BrowsePairing, resolveOptions{
+			ManualHost:  opts.ManualHost,
+			ManualPort:  opts.ManualPort,
+			Timeout:     opts.Timeout,
+			SelectLabel: "Select device to pair",
+			ManualLabel: "Enter device host:port",
+		})
+		if resolveErr != nil {
+			return fmt.Errorf("find device to pair (open Wireless debugging > Pair with pairing code): %w", resolveErr)
+		}
+
+		code := opts.Code
+		if code == "" {
+			promptedCode, promptErr := ui.PromptPairingCode()
+			if promptErr != nil {
+				return promptErr
+			}
+
+			code = promptedCode
+		}
+
+		pairErr := client.Pair(ctx, device.Endpoint(), code)
+		if pairErr == nil {
+			logger.InfoContext(ctx, "paired", "device", device.String())
+
+			return printf("%s\n", success("Paired. Run `droidlink connect` to connect."))
+		}
+
+		if !isTransientPairError(pairErr) || attempt == pairMaxAttempts {
+			return fmt.Errorf("pair with %s: %w", device.Endpoint(), pairErr)
+		}
+
+		lastErr = pairErr
 	}
 
-	if pairErr := client.Pair(ctx, device.Endpoint(), code); pairErr != nil {
-		return fmt.Errorf("pair with %s: %w", device.Endpoint(), pairErr)
-	}
+	return lastErr
+}
 
-	logging.FromContext(ctx).InfoContext(ctx, "paired", "device", device.String())
-
-	return printf("Paired successfully. Run `droidlink connect` to connect.\n")
+// isTransientPairError reports whether err looks like adb's well-known
+// intermittent pairing wire glitch ("protocol fault (couldn't read status
+// message): Success") rather than a genuine rejection (e.g. wrong code).
+// Retrying with a freshly discovered port and a freshly prompted code
+// resolves it in practice; retrying the exact same code/port does not.
+func isTransientPairError(err error) bool {
+	return strings.Contains(err.Error(), "protocol fault")
 }

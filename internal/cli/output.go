@@ -5,22 +5,16 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"text/tabwriter"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/lipgloss/table"
 
 	"droidlink/internal/types"
 )
 
-// tabwriter column-spacing constants (minwidth, tabwidth, padding, padchar).
-const (
-	tableMinWidth = 0
-	tableTabWidth = 4
-	tablePadding  = 2
-	tablePadChar  = ' '
-)
-
-func newTable() *tabwriter.Writer {
-	return tabwriter.NewWriter(os.Stdout, tableMinWidth, tableTabWidth, tablePadding, tablePadChar, 0)
-}
+// deviceStateColumn is the STATE column index in printDeviceStatusTable's
+// headers ("NAME", "HOST:PORT", "STATE", "ADVERTISING").
+const deviceStateColumn = 2
 
 func printf(format string, args ...any) error {
 	if _, err := fmt.Fprintf(os.Stdout, format, args...); err != nil {
@@ -42,31 +36,43 @@ func writeJSON(w io.Writer, v any) error {
 }
 
 func printDeviceTable(devices []types.Device) error {
-	w := newTable()
-
-	if _, err := fmt.Fprintln(w, "NAME\tSERVICE\tHOST:PORT"); err != nil {
-		return fmt.Errorf("write device table: %w", err)
-	}
+	t := newDeviceTable("NAME", "SERVICE", "HOST:PORT")
 
 	for _, d := range devices {
-		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\n", d.Name, d.Service, d.Endpoint()); err != nil {
-			return fmt.Errorf("write device table: %w", err)
-		}
+		t.Row(d.Name, d.Service.String(), d.Endpoint())
 	}
 
-	if err := w.Flush(); err != nil {
-		return fmt.Errorf("flush device table: %w", err)
+	return printf("%s\n", t.Render())
+}
+
+// displayEndpoint renders a device's connection identifier for tables. Some
+// adb-reported serials aren't "host:port" at all — e.g. modern adb's own
+// mDNS auto-tracking lists a device by its raw mDNS instance name
+// ("adb-XXXX._adb-tls-connect._tcp") as a second serial alongside the usual
+// host:port one — and Device.Endpoint() would otherwise render those as a
+// meaningless ":0".
+func displayEndpoint(d types.Device) string {
+	if d.Host != "" {
+		return d.Endpoint()
 	}
 
-	return nil
+	return d.Serial
 }
 
 func printDeviceStatusTable(devices []types.Device) error {
-	w := newTable()
+	t := newDeviceTable("NAME", "HOST:PORT", "STATE", "ADVERTISING")
 
-	if _, err := fmt.Fprintln(w, "NAME\tHOST:PORT\tSTATE\tADVERTISING"); err != nil {
-		return fmt.Errorf("write device table: %w", err)
-	}
+	t.StyleFunc(func(row, col int) lipgloss.Style {
+		if row == table.HeaderRow {
+			return styleHeader()
+		}
+
+		if col == deviceStateColumn && row >= 0 && row < len(devices) {
+			return stateStyle(devices[row].State)
+		}
+
+		return styleCell()
+	})
 
 	for _, d := range devices {
 		advertising := "none"
@@ -79,14 +85,8 @@ func printDeviceStatusTable(devices []types.Device) error {
 			state = "-" // known only via mDNS; adb has never reported a state for it
 		}
 
-		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", d.Name, d.Endpoint(), state, advertising); err != nil {
-			return fmt.Errorf("write device table: %w", err)
-		}
+		t.Row(d.Name, displayEndpoint(d), state, advertising)
 	}
 
-	if err := w.Flush(); err != nil {
-		return fmt.Errorf("flush device table: %w", err)
-	}
-
-	return nil
+	return printf("%s\n", t.Render())
 }

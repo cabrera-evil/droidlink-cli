@@ -23,12 +23,12 @@ func Execute(version string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	root := newRootCmd()
+	root, noColor := newRootCmd()
 	root.Version = version
 
 	if err := root.ExecuteContext(ctx); err != nil {
 		if !errors.Is(err, context.Canceled) {
-			fmt.Fprintln(os.Stderr, "error:", err)
+			printError(err, *noColor)
 		}
 
 		return err
@@ -37,7 +37,19 @@ func Execute(version string) error {
 	return nil
 }
 
-func newRootCmd() *cobra.Command {
+func printError(err error, noColor bool) {
+	prefix := "error:"
+	if !noColor {
+		prefix = styleError().Render("✗ error:")
+	}
+
+	fmt.Fprintln(os.Stderr, prefix, err)
+}
+
+// newRootCmd builds the root command and returns a pointer to its
+// --no-color flag so Execute can style its own final error line the same
+// way once flags are parsed.
+func newRootCmd() (*cobra.Command, *bool) {
 	cfg := config.Load()
 
 	logLevel := cfg.DefaultLogLevel
@@ -74,5 +86,5 @@ func newRootCmd() *cobra.Command {
 		newExpoCmd(cfg),
 	)
 
-	return root
+	return root, &noColor
 }

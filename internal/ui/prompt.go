@@ -69,10 +69,6 @@ func PromptHostPort(label string) (string, int, error) {
 	return splitHostPort(input)
 }
 
-func runField(field huh.Field) error {
-	return huh.NewForm(huh.NewGroup(field)).WithTheme(huh.ThemeCharm()).Run()
-}
-
 func splitHostPort(input string) (string, int, error) {
 	host, portStr, err := net.SplitHostPort(input)
 	if err != nil {

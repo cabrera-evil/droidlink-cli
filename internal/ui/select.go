@@ -45,16 +45,12 @@ func SelectDevice(devices []types.Device, label string) (types.Device, error) {
 
 	selected := 0
 
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewSelect[int]().
-				Title(label).
-				Options(options...).
-				Value(&selected),
-		),
-	).WithTheme(huh.ThemeCharm())
+	field := huh.NewSelect[int]().
+		Title(label).
+		Options(options...).
+		Value(&selected)
 
-	if err := form.Run(); err != nil {
+	if err := runField(field); err != nil {
 		return types.Device{}, fmt.Errorf("select device: %w", err)
 	}
 
