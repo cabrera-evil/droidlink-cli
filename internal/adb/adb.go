@@ -83,8 +83,9 @@ func candidatePaths() []string {
 	return paths
 }
 
-// Devices runs `adb devices -l` and returns devices currently known to adb
-// in the "device" (usable) state.
+// Devices runs `adb devices -l` and returns every device adb currently
+// knows about, including offline/unauthorized entries — check
+// types.Device.Connected (or State) to filter to usable devices.
 func (c *Client) Devices(ctx context.Context) ([]types.Device, error) {
 	output, err := c.run(ctx, "devices", "-l")
 	if err != nil {
@@ -106,10 +107,24 @@ func (c *Client) Pair(ctx context.Context, hostPort, code string) error {
 	return nil
 }
 
+// connectSuccessMarker is the substring adb prints on a genuine success
+// ("connected to host:port" or "already connected to host:port"). adb
+// connect is notorious for exiting 0 even on failure (e.g. "failed to
+// connect to '...': Connection refused"), so the exit code alone can't be
+// trusted — the output text is the only reliable signal.
+const connectSuccessMarker = "connected to"
+
 // Connect runs `adb connect host:port`.
 func (c *Client) Connect(ctx context.Context, hostPort string) error {
-	if _, err := c.run(ctx, "connect", hostPort); err != nil {
+	output, err := c.run(ctx, "connect", hostPort)
+	if err != nil {
 		return fmt.Errorf("connect %s: %w", hostPort, err)
+	}
+
+	if !strings.Contains(output, connectSuccessMarker) {
+		return fmt.Errorf("connect %s: %w", hostPort, &CommandError{
+			Args: []string{"connect", hostPort}, ExitCode: 0, Output: output,
+		})
 	}
 
 	return nil

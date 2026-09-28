@@ -71,11 +71,12 @@ func resolveSerial(ctx context.Context, client *adb.Client, serial string) (stri
 		return serial, nil
 	}
 
-	connected, err := client.Devices(ctx)
+	devices, err := client.Devices(ctx)
 	if err != nil {
 		return "", fmt.Errorf("list adb devices: %w", err)
 	}
 
+	connected := usableDevices(devices)
 	if len(connected) == 0 {
 		return "", errors.New("no connected devices found; run `droidlink connect` first")
 	}

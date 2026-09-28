@@ -64,7 +64,7 @@ func printDeviceTable(devices []types.Device) error {
 func printDeviceStatusTable(devices []types.Device) error {
 	w := newTable()
 
-	if _, err := fmt.Fprintln(w, "NAME\tHOST:PORT\tCONNECTED\tADVERTISING"); err != nil {
+	if _, err := fmt.Fprintln(w, "NAME\tHOST:PORT\tSTATE\tADVERTISING"); err != nil {
 		return fmt.Errorf("write device table: %w", err)
 	}
 
@@ -74,7 +74,12 @@ func printDeviceStatusTable(devices []types.Device) error {
 			advertising = d.Service.String()
 		}
 
-		if _, err := fmt.Fprintf(w, "%s\t%s\t%t\t%s\n", d.Name, d.Endpoint(), d.Connected, advertising); err != nil {
+		state := d.State
+		if state == "" {
+			state = "-" // known only via mDNS; adb has never reported a state for it
+		}
+
+		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", d.Name, d.Endpoint(), state, advertising); err != nil {
 			return fmt.Errorf("write device table: %w", err)
 		}
 	}

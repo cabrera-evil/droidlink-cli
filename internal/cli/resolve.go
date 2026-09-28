@@ -69,3 +69,18 @@ func validateManualFlags(host string, port int) error {
 
 	return nil
 }
+
+// usableDevices filters an `adb devices -l` result down to entries in the
+// "device" state, excluding offline/unauthorized ones that aren't usable
+// targets for reverse/connect checks.
+func usableDevices(devices []types.Device) []types.Device {
+	usable := make([]types.Device, 0, len(devices))
+
+	for _, d := range devices {
+		if d.Connected {
+			usable = append(usable, d)
+		}
+	}
+
+	return usable
+}

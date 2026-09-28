@@ -105,15 +105,19 @@ func resolveAndConnect(ctx context.Context, client *adb.Client, opts connectOpti
 	}
 
 	if connectErr := client.Connect(ctx, device.Endpoint()); connectErr != nil {
-		return types.Device{}, fmt.Errorf("connect %s: %w", device.Endpoint(), connectErr)
+		return types.Device{}, connectErr
 	}
 
 	return device, nil
 }
 
+// isAlreadyConnected reports whether adb already has a usable ("device"
+// state) connection to target. adb devices -l also reports offline/
+// unauthorized entries, which aren't usable and must trigger a reconnect
+// rather than being treated as already connected.
 func isAlreadyConnected(connected []types.Device, target types.Device) bool {
 	for _, d := range connected {
-		if d.Endpoint() == target.Endpoint() {
+		if d.Endpoint() == target.Endpoint() && d.Connected {
 			return true
 		}
 	}

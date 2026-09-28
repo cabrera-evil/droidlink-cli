@@ -41,14 +41,20 @@ func (s ServiceType) String() string {
 // on regardless of pairing state. Paired really means "seen via the connect
 // service", implying adb already trusts it enough to offer a connect port.
 type Device struct {
-	Name         string      `json:"name"`
-	Host         string      `json:"host"`
-	Port         int         `json:"port"`
-	Service      ServiceType `json:"service"`
-	Serial       string      `json:"serial,omitempty"`
-	Paired       bool        `json:"paired"`
-	Connected    bool        `json:"connected"`
-	DiscoveredAt time.Time   `json:"discoveredAt,omitzero"`
+	Name      string      `json:"name"`
+	Host      string      `json:"host"`
+	Port      int         `json:"port"`
+	Service   ServiceType `json:"service"`
+	Serial    string      `json:"serial,omitempty"`
+	Paired    bool        `json:"paired"`
+	Connected bool        `json:"connected"`
+	// State is adb's own reported state (e.g. "device", "offline",
+	// "unauthorized") when this device was seen via `adb devices -l`, and
+	// empty when it's only known from mDNS discovery. Kept distinct from
+	// Connected so a device that adb sees but hasn't fully authorized isn't
+	// indistinguishable from one adb has never seen at all.
+	State        string    `json:"state,omitempty"`
+	DiscoveredAt time.Time `json:"discoveredAt,omitzero"`
 }
 
 // String returns a human-readable "name (host:port)" label for UI lists.

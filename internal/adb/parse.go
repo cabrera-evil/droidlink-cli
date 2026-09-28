@@ -8,12 +8,19 @@ import (
 	"droidlink/internal/types"
 )
 
-const devicesHeader = "List of devices attached"
+const (
+	devicesHeader = "List of devices attached"
+	stateDevice   = "device"
 
-// ParseDevicesOutput parses `adb devices -l` stdout into devices currently
-// known to adb. Only entries in the "device" state are included; offline or
-// unauthorized entries aren't usable for connect/reverse/disconnect and are
-// skipped.
+	// minDeviceFields is "<serial> <state>", the minimum adb devices -l
+	// prints per device line.
+	minDeviceFields = 2
+)
+
+// ParseDevicesOutput parses `adb devices -l` stdout into every device adb
+// currently knows about, including offline/unauthorized entries (see
+// types.Device.State) — callers that only care about usable devices should
+// filter on Connected (state == "device").
 func ParseDevicesOutput(output string) []types.Device {
 	var devices []types.Device
 
@@ -24,7 +31,7 @@ func ParseDevicesOutput(output string) []types.Device {
 		}
 
 		fields := strings.Fields(line)
-		if len(fields) < 2 || fields[1] != "device" {
+		if len(fields) < minDeviceFields {
 			continue
 		}
 
@@ -35,12 +42,13 @@ func ParseDevicesOutput(output string) []types.Device {
 }
 
 func deviceFromFields(fields []string) types.Device {
-	serial := fields[0]
+	serial, state := fields[0], fields[1]
 
 	device := types.Device{
 		Name:      serial,
 		Serial:    serial,
-		Connected: true,
+		State:     state,
+		Connected: state == stateDevice,
 	}
 
 	if host, portStr, splitErr := net.SplitHostPort(serial); splitErr == nil {
