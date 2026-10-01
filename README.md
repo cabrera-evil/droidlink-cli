@@ -11,6 +11,7 @@ reverse` + `npx expo start` for you.
 
 - `droidlink discover` — find Android Wireless Debugging devices/services on the local network.
 - `droidlink pair` — discover an unpaired device and pair with it using its pairing code.
+  Add `--qr` to show a QR code to scan from *Wireless debugging > Pair device with QR code* instead.
 - `droidlink connect` — discover paired devices and connect automatically.
 - `droidlink devices` — list discovered/connected devices with status.
 - `droidlink disconnect` — disconnect one or all connected devices.

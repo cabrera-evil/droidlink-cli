@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -21,18 +22,30 @@ import (
 // phone to rotate its pairing port and code defensively.
 const pairMaxAttempts = 3
 
+// defaultQRTimeout leaves time to open the scanner and scan the code.
+const defaultQRTimeout = 2 * time.Minute
+
+const qrPairInstructions = "On your device open Developer options > Wireless debugging > " +
+	"Pair device with QR code, then scan:"
+
 func newPairCmd(cfg config.Config) *cobra.Command {
 	var (
-		host    string
-		port    int
-		code    string
-		timeout time.Duration
+		host      string
+		port      int
+		code      string
+		timeout   time.Duration
+		qr        bool
+		qrTimeout time.Duration
 	)
 
 	cmd := &cobra.Command{
 		Use:   "pair",
 		Short: "Discover an unpaired device and pair with it using its pairing code",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if qr {
+				return runPairQR(cmd.Context(), qrTimeout)
+			}
+
 			return runPair(cmd.Context(), pairOptions{
 				ManualHost: host,
 				ManualPort: port,
@@ -46,6 +59,12 @@ func newPairCmd(cfg config.Config) *cobra.Command {
 	cmd.Flags().IntVar(&port, "port", 0, "manual device port (skips discovery, requires --host)")
 	cmd.Flags().StringVar(&code, "code", "", "6-digit pairing code shown on the device (prompted if omitted)")
 	cmd.Flags().DurationVar(&timeout, "timeout", cfg.DefaultDiscoveryTimeout, "discovery timeout")
+	cmd.Flags().BoolVar(&qr, "qr", false, "show a QR code to scan from Wireless debugging > Pair device with QR code")
+	cmd.Flags().DurationVar(&qrTimeout, "qr-timeout", defaultQRTimeout,
+		"how long to wait for the device to scan the QR code")
+	cmd.MarkFlagsMutuallyExclusive("qr", "host")
+	cmd.MarkFlagsMutuallyExclusive("qr", "port")
+	cmd.MarkFlagsMutuallyExclusive("qr", "code")
 
 	return cmd
 }
@@ -113,6 +132,50 @@ func runPair(ctx context.Context, opts pairOptions) error {
 	}
 
 	return lastErr
+}
+
+// runPairQR shows a pairing QR code, waits for the device that scanned it to
+// advertise the encoded service name over mDNS, then pairs using the
+// encoded password. A failed attempt is not retried: the device discards
+// the QR session, so the user must rescan a fresh code.
+func runPairQR(ctx context.Context, timeout time.Duration) error {
+	client, err := adb.NewClient()
+	if err != nil {
+		return err
+	}
+
+	pairing, err := adb.NewQRPairing()
+	if err != nil {
+		return err
+	}
+
+	err = printf("%s\n\n", qrPairInstructions)
+	if err != nil {
+		return err
+	}
+
+	ui.RenderQR(os.Stdout, pairing.Payload())
+
+	err = printf("%s\n", styleMuted().Render(fmt.Sprintf("Waiting up to %s for the device to scan...", timeout)))
+	if err != nil {
+		return err
+	}
+
+	device, err := discovery.WaitForPairingInstance(ctx, pairing.ServiceName, timeout)
+	if err != nil {
+		return fmt.Errorf("wait for QR scan (device and computer must share a network with mDNS): %w", err)
+	}
+
+	logger := logging.FromContext(ctx)
+	logger.DebugContext(ctx, "QR pairing service found", "device", device.String())
+
+	if pairErr := client.Pair(ctx, device.Endpoint(), pairing.Password); pairErr != nil {
+		return fmt.Errorf("pair with %s: %w", device.Endpoint(), pairErr)
+	}
+
+	logger.InfoContext(ctx, "paired", "device", device.String())
+
+	return printf("%s\n", success("Paired. Run `droidlink connect` to connect."))
 }
 
 // isTransientPairError reports whether err looks like adb's well-known

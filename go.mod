@@ -8,6 +8,7 @@ require (
 	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e
 	github.com/libp2p/zeroconf/v2 v2.2.0
 	github.com/lmittmann/tint v1.2.0
+	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/spf13/cobra v1.10.2
 )
 
@@ -42,5 +43,7 @@ require (
 	golang.org/x/net v0.44.0 // indirect
 	golang.org/x/sync v0.17.0 // indirect
 	golang.org/x/sys v0.36.0 // indirect
+	golang.org/x/term v0.35.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
+	rsc.io/qr v0.2.0 // indirect
 )
