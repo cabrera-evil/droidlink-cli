@@ -35,6 +35,19 @@ make build
 ./bin/droidlink discover
 ```
 
+## Updating
+
+Release builds can update themselves from GitHub Releases:
+
+```bash
+droidlink update --check          # report current vs latest, change nothing
+droidlink update                  # prompts "Update X -> Y? [y/N]"
+droidlink update --yes            # required when stdin is not interactive
+droidlink update --version v1.2.3 # install a specific release
+```
+
+Dev and dirty builds refuse to update. Set `GITHUB_TOKEN` for rate limits.
+
 ## Docker
 
 ```bash

@@ -23,8 +23,7 @@ func Execute(version string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	root, noColor := newRootCmd()
-	root.Version = version
+	root, noColor := newRootCmd(version)
 
 	if err := root.ExecuteContext(ctx); err != nil {
 		if !errors.Is(err, context.Canceled) {
@@ -49,7 +48,7 @@ func printError(err error, noColor bool) {
 // newRootCmd builds the root command and returns a pointer to its
 // --no-color flag so Execute can style its own final error line the same
 // way once flags are parsed.
-func newRootCmd() (*cobra.Command, *bool) {
+func newRootCmd(version string) (*cobra.Command, *bool) {
 	cfg := config.Load()
 
 	logLevel := cfg.DefaultLogLevel
@@ -57,6 +56,7 @@ func newRootCmd() (*cobra.Command, *bool) {
 
 	root := &cobra.Command{
 		Use:           "droidlink",
+		Version:       version,
 		Short:         "Simplify Android Wireless Debugging and Expo dev-client workflows",
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -84,6 +84,7 @@ func newRootCmd() (*cobra.Command, *bool) {
 		newDisconnectCmd(),
 		newReverseCmd(cfg),
 		newExpoCmd(cfg),
+		newUpdateCmd(version),
 	)
 
 	return root, &noColor
