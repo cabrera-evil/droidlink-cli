@@ -56,7 +56,7 @@ type Updater struct {
 	Repo        string
 	Current     string
 	Exe         string
-	Interactive bool // stdin is a terminal
+	Interactive bool // stdin and stdout are terminals, so a prompt can be asked and answered
 	OutTTY      bool // stdout is a terminal
 	In          io.Reader
 	Out         io.Writer
@@ -209,7 +209,7 @@ func (u *Updater) runTUI(
 
 		rel = r
 		if chk.Available && !u.writable() {
-			chk.ManualURL = r.URL
+			chk.ManualURL, chk.Exe = r.URL, u.Exe
 		}
 
 		return chk, nil
@@ -288,7 +288,7 @@ func newUpdater(src selfupdate.Source, version, exe string, in io.Reader, out io
 		Repo:        repoSlug,
 		Current:     version,
 		Exe:         exe,
-		Interactive: utils.IsTerminal(in),
+		Interactive: utils.IsTerminal(in) && utils.IsTerminal(out), // a prompt needs a question and an answer
 		OutTTY:      utils.IsTerminal(out),
 		In:          in,
 		Out:         out,
@@ -314,6 +314,11 @@ func newUpdateCmdWith(version string, adjust func(*Updater)) *cobra.Command {
 			exe, err := os.Executable()
 			if err != nil {
 				return fmt.Errorf("locate executable: %w", err)
+			}
+
+			// os.Executable may be a symlink (argv-derived on darwin); replace the real file, not the link.
+			if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
+				exe = resolved
 			}
 
 			u := newUpdater(src, version, exe, cmd.InOrStdin(), cmd.OutOrStdout())
