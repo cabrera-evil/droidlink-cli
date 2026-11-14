@@ -7,12 +7,17 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/creativeprojects/go-selfupdate"
 	"github.com/spf13/cobra"
+
+	"droidlink/internal/utils"
 )
 
 // repoSlug is the GitHub repository releases are fetched from.
@@ -27,7 +32,16 @@ var (
 	errNotRelease     = errors.New("updates only work for release builds")
 	errNeedsYes       = errors.New("not running interactively: pass --yes to confirm the update")
 	errReleaseMissing = errors.New("release not found")
+	errCancelled      = errors.New("update cancelled")
+	errIncomplete     = errors.New("interactive update: ended before finishing")
+	// ErrReported marks an error whose message the interactive view already showed; printError must not print it again.
+	ErrReported = errors.New("already reported")
 )
+
+// reportedError keeps err's text and cause and adds ErrReported.
+type reportedError struct{ error }
+
+func (e reportedError) Unwrap() []error { return []error{e.error, ErrReported} }
 
 // UpdateOptions mirrors the `update` command flags.
 type UpdateOptions struct {
@@ -42,11 +56,14 @@ type Updater struct {
 	Repo        string
 	Current     string
 	Exe         string
-	Interactive bool
+	Interactive bool // stdin is a terminal
+	OutTTY      bool // stdout is a terminal
 	In          io.Reader
 	Out         io.Writer
 	// Replace installs the release over Exe; defaults to the library's UpdateTo.
 	Replace func(ctx context.Context, rel *selfupdate.Release, exe string) error
+	// RunTUI runs the interactive model; defaults to a Bubble Tea program on In/Out.
+	RunTUI func(ctx context.Context, m tea.Model) (tea.Model, error)
 }
 
 // checksumValidator validates against GoReleaser's <name>_<version>_checksums.txt.
@@ -90,34 +107,25 @@ func (u *Updater) Run(ctx context.Context, opts UpdateOptions) error {
 
 	repo := selfupdate.ParseSlug(u.Repo)
 
-	var (
-		rel   *selfupdate.Release
-		found bool
-	)
-	if opts.Version != "" {
-		rel, found, err = up.DetectVersion(ctx, repo, opts.Version)
-	} else {
-		rel, found, err = up.DetectLatest(ctx, repo)
+	replace := u.Replace
+	if replace == nil {
+		replace = up.UpdateTo
 	}
 
+	if u.Interactive && u.OutTTY && !opts.Yes && !opts.Check {
+		return u.runTUI(ctx, up, repo, opts, replace)
+	}
+
+	rel, chk, err := u.detect(ctx, up, repo, opts.Version)
 	if err != nil {
-		return fmt.Errorf("look up release: %w", err)
+		return err
 	}
 
-	if !found {
-		return fmt.Errorf("%w for this platform (version %q)", errReleaseMissing, opts.Version)
-	}
-
-	current := strings.TrimPrefix(u.Current, "v")
-	latest := rel.Version()
-	newer := rel.GreaterThan(current)
-	same := rel.Equal(current)
-	// An explicit --version may also downgrade; otherwise only newer releases count.
-	available := newer || (opts.Version != "" && !same)
+	current, latest := chk.Current, chk.Latest
 
 	if opts.Check {
 		_, _ = fmt.Fprintf(u.Out, "current: %s\nlatest:  %s\n", current, latest)
-		if available {
+		if chk.Available {
 			_, _ = fmt.Fprintln(u.Out, "update available")
 		} else {
 			_, _ = fmt.Fprintln(u.Out, "already up to date")
@@ -126,7 +134,7 @@ func (u *Updater) Run(ctx context.Context, opts UpdateOptions) error {
 		return nil
 	}
 
-	if !available {
+	if !chk.Available {
 		_, _ = fmt.Fprintf(u.Out, "already up to date (%s)\n", current)
 
 		return nil
@@ -144,16 +152,103 @@ func (u *Updater) Run(ctx context.Context, opts UpdateOptions) error {
 		}
 	}
 
-	replace := u.Replace
-	if replace == nil {
-		replace = up.UpdateTo
-	}
-
 	if err = replace(ctx, rel, u.Exe); err != nil {
 		return fmt.Errorf("update binary: %w", err)
 	}
 
 	_, _ = fmt.Fprintf(u.Out, "updated %s -> %s\n", current, latest)
+
+	return nil
+}
+
+// detect looks up the target release and compares it with the running version.
+func (u *Updater) detect(
+	ctx context.Context, up *selfupdate.Updater, repo selfupdate.Repository, version string,
+) (*selfupdate.Release, updateCheck, error) {
+	var (
+		rel   *selfupdate.Release
+		found bool
+		err   error
+	)
+	if version != "" {
+		rel, found, err = up.DetectVersion(ctx, repo, version)
+	} else {
+		rel, found, err = up.DetectLatest(ctx, repo)
+	}
+
+	if err != nil {
+		return nil, updateCheck{}, fmt.Errorf("look up release: %w", err)
+	}
+
+	if !found {
+		return nil, updateCheck{}, fmt.Errorf("%w for this platform (version %q)", errReleaseMissing, version)
+	}
+
+	current := strings.TrimPrefix(u.Current, "v")
+	// An explicit --version may also downgrade; otherwise only newer releases count.
+	available := rel.GreaterThan(current) || (version != "" && !rel.Equal(current))
+
+	return rel, updateCheck{Current: current, Latest: rel.Version(), Available: available}, nil
+}
+
+// runTUI drives the interactive flow; the TUI reads its keys from In and renders to Out.
+func (u *Updater) runTUI(
+	ctx context.Context,
+	up *selfupdate.Updater,
+	repo selfupdate.Repository,
+	opts UpdateOptions,
+	replace func(context.Context, *selfupdate.Release, string) error,
+) error {
+	var rel *selfupdate.Release
+
+	detect := func(ctx context.Context) (updateCheck, error) {
+		r, chk, err := u.detect(ctx, up, repo, opts.Version)
+		if err != nil {
+			return chk, err
+		}
+
+		rel = r
+		if chk.Available && !u.writable() {
+			chk.ManualURL = r.URL
+		}
+
+		return chk, nil
+	}
+	install := func(ctx context.Context) error {
+		if err := replace(ctx, rel, u.Exe); err != nil {
+			return fmt.Errorf("update binary: %w", err)
+		}
+
+		return nil
+	}
+
+	run := u.RunTUI
+	if run == nil {
+		run = func(ctx context.Context, m tea.Model) (tea.Model, error) {
+			// cli.Execute's NotifyContext never restores default handling after the first signal;
+			// restore it so a second SIGINT/SIGTERM during the replace ends the process (R19).
+			signal.Reset(os.Interrupt, syscall.SIGTERM)
+
+			p := tea.NewProgram(m, tea.WithInput(u.In), tea.WithOutput(u.Out), tea.WithContext(ctx),
+				tea.WithFilter(swallowQuitWhileUpdating))
+
+			return p.Run() //nolint:wrapcheck // wrapped by caller
+		}
+	}
+
+	final, err := run(ctx, newUpdateModel(ctx, detect, install))
+	if err != nil {
+		return fmt.Errorf("interactive update: %w", err)
+	}
+
+	m, ok := final.(updateModel)
+	if !ok || m.state != stateDone {
+		return errIncomplete
+	}
+
+	if err = m.Err(); err != nil {
+		return reportedError{err}
+	}
 
 	return nil
 }
@@ -167,7 +262,7 @@ func (u *Updater) confirm(current, latest string) error {
 
 	answer, _ := bufio.NewReader(u.In).ReadString('\n')
 	if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
-		return errors.New("update cancelled")
+		return errCancelled
 	}
 
 	return nil
@@ -186,7 +281,24 @@ func (u *Updater) writable() bool {
 	return true
 }
 
-func newUpdateCmd(version string) *cobra.Command {
+// newUpdater wires the streams the update runs on; the TUI is used only when both are real terminals.
+func newUpdater(src selfupdate.Source, version, exe string, in io.Reader, out io.Writer) *Updater {
+	return &Updater{
+		Source:      src,
+		Repo:        repoSlug,
+		Current:     version,
+		Exe:         exe,
+		Interactive: utils.IsTerminal(in),
+		OutTTY:      utils.IsTerminal(out),
+		In:          in,
+		Out:         out,
+	}
+}
+
+func newUpdateCmd(version string) *cobra.Command { return newUpdateCmdWith(version, nil) }
+
+// newUpdateCmdWith builds the command; adjust, when set, may change the Updater right before it runs.
+func newUpdateCmdWith(version string, adjust func(*Updater)) *cobra.Command {
 	var opts UpdateOptions
 
 	cmd := &cobra.Command{
@@ -204,15 +316,10 @@ func newUpdateCmd(version string) *cobra.Command {
 				return fmt.Errorf("locate executable: %w", err)
 			}
 
-			st, _ := os.Stdin.Stat()
-			u := &Updater{
-				Source:      src,
-				Repo:        repoSlug,
-				Current:     version,
-				Exe:         exe,
-				Interactive: st != nil && st.Mode()&os.ModeCharDevice != 0,
-				In:          cmd.InOrStdin(),
-				Out:         cmd.OutOrStdout(),
+			u := newUpdater(src, version, exe, cmd.InOrStdin(), cmd.OutOrStdout())
+
+			if adjust != nil {
+				adjust(u)
 			}
 
 			return u.Run(cmd.Context(), opts)

@@ -41,10 +41,12 @@ Release builds can update themselves from GitHub Releases:
 
 ```bash
 droidlink update --check          # report current vs latest, change nothing
-droidlink update                  # prompts "Update X -> Y? [y/N]"
-droidlink update --yes            # required when stdin is not interactive
+droidlink update                  # interactive: spinner, "Update X -> Y? [y/N]", progress, result
+droidlink update --yes            # skip the prompt; required when stdin is not interactive
 droidlink update --version v1.2.3 # install a specific release
 ```
+
+In a terminal, `update` starts an interactive flow automatically (unless `--yes` or `--check` is set); when stdin or stdout is piped it keeps the plain scripted behavior.
 
 Dev and dirty builds refuse to update. Set `GITHUB_TOKEN` for rate limits.
 

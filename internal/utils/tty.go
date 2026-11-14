@@ -17,3 +17,11 @@ import (
 func IsInteractive(f *os.File) bool {
 	return readline.IsTerminal(int(f.Fd()))
 }
+
+// IsTerminal reports whether s is an *os.File attached to an interactive
+// terminal; any other stream (buffers, readers) is not.
+func IsTerminal(s any) bool {
+	f, ok := s.(*os.File)
+
+	return ok && IsInteractive(f)
+}

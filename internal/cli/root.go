@@ -37,6 +37,10 @@ func Execute(version string) error {
 }
 
 func printError(err error, noColor bool) {
+	if errors.Is(err, ErrReported) {
+		return // the interactive update view already showed it
+	}
+
 	prefix := "error:"
 	if !noColor {
 		prefix = styleError().Render("✗ error:")
